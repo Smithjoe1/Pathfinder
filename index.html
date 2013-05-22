@@ -1,0 +1,368 @@
+<!--
+
+This file is part of PoorMansGPS
+
+Copyright (c) 2012, Bobbie Smulders
+
+Contact:  mail@bsmulders.com
+
+GNU General Public License Usage
+This file may be used under the terms of the GNU General Public License version 3.0 as published by the Free Software Foundation and appearing in the file LICENSE included in the packaging of this file.  Please review the following information to ensure the GNU General Public License version 3.0 requirements will be met: http://www.gnu.org/copyleft/gpl.html.
+
+-->
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="initial-scale=1.0, user-scalable=no" />
+<meta http-equiv="content-type" content="text/html; charset=UTF-8" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black" />
+
+<title>Pathfinder GPS</title>
+
+<link href="css/default.css" rel="stylesheet" type="text/css" />
+
+<link rel="apple-touch-icon" href="img/touch-icon.png"/>
+<link rel="apple-touch-startup-image" href="img/startup.png">
+
+<script src="js/socket.io.js"></script>
+
+<script type="text/javascript" src="https://maps.googleapis.com/maps/api/js?sensor=false"></script>
+
+<script type="text/javascript">
+// This script is based on the following example by Google:
+// "Google Maps JavaScript API v3 Example: Directions Complex"
+
+// Google Maps core objects
+var map;
+var directionsService;
+var directionsRenderer;
+
+// Marker objects
+var markerArray = [];
+var userMarker;
+var userLocation;
+
+// Icon image locations
+var inactiveIcon;
+var activeIcon;
+var userIcon;
+
+// Route objects
+var destination;
+var directions;
+var activeStep;
+
+var serialSocket = io.connect('http://127.0.0.1:8000')
+
+// Direction objects
+var directionDistance
+var directionText
+
+var directionBearingClose
+var directionBearingFar
+
+function initialize() {
+    // Set icon locations
+    inactiveIcon = 'http://maps.google.com/mapfiles/marker_grey.png';
+    activeIcon = 'http://maps.google.com/mapfiles/marker.png';
+    userIcon = 'http://maps.google.com/mapfiles/arrow.png';
+
+    // Instantiate a directions service
+    directionsService = new google.maps.DirectionsService();
+
+    // Instantiate a map
+    var mapOptions = {
+        mapTypeId: google.maps.MapTypeId.ROADMAP
+    }
+    map = new google.maps.Map(document.getElementById("map_canvas"), mapOptions);
+
+    // Instantiate a renderer for directions and bind it to the map
+    var rendererOptions = {
+        map: map,
+        preserveViewport: true
+    }
+    directionsRenderer = new google.maps.DirectionsRenderer(rendererOptions);
+
+    // Instantiate the user marker
+    var userMarkerOptions = {
+//        icon: userIcon,
+        map: map
+    }
+    userMarker = new google.maps.Marker(userMarkerOptions);
+
+    // Set geolocation listener
+    if (navigator.geolocation) {
+        navigator.geolocation.watchPosition(updateGeolocation);
+    } else {
+        alert('Geolocation is not supported');
+    }
+
+    //Create a mouse listener
+    google.maps.event.addListener(map, 'click', function(event){
+        placeMarker(event.latLng);
+    });
+
+    //Serial sockets
+    socketWrite("Serial port opened");
+    console.log("Serial port opened");
+
+}
+
+function placeMarker(location){
+    if (userLocation){
+        userLocation.setPosition(location);
+    }else {
+        userLocation = new google.maps.Marker({
+            position: location,
+            map: map
+        })
+    }
+    updateUserMarker(location.lat(), location.lng());
+}
+
+function clearRoute() {
+    // Disable the DirectionsRenderer
+    directionsRenderer.setMap(null);
+
+    // Remove any existing markers from the map
+    for (i = 0; i < markerArray.length; i++) {
+        markerArray[i].setMap(null);
+    }
+
+    // Clear the marker array and the active step
+    markerArray = [];
+    activeStep = 0;
+
+    // Clear the directions panel
+    updateDirectionPanel(0, null);
+}
+
+function calcRoute(destination) {
+    // Clear the current route
+    clearRoute();
+
+    if (destination != null) {
+        // Create a DirectionsRequest
+        var request = {
+            origin: userMarker.getPosition(),
+            destination: destination,
+            travelMode: google.maps.DirectionsTravelMode.BICYCLING
+        };
+
+        // Request route directions
+        directionsService.route(request, function (response, status) {
+            if (status == google.maps.DirectionsStatus.OK) {
+
+                if (response.routes[0].warnings.length > 0) {
+                    alert(response.routes[0].warnings);
+                }
+
+                // Store directions for later use
+                directions = response;
+
+                // Render directions on map
+                directionsRenderer.setMap(map);
+                directionsRenderer.setDirections(directions);
+
+                // Place the direction markers on the map
+                createDirectionMarkers();
+            }
+        });
+    }
+}
+
+function createDirectionMarkers() {
+    var route = directions.routes[0].legs[0]
+
+    for (var i = 0; i < route.steps.length; i++) {
+        // Add marker for each step on the route
+        var marker = new google.maps.Marker({
+            position: route.steps[i].start_point,
+            icon: inactiveIcon,
+            map: map
+        });
+        markerArray[i] = marker;
+    }
+}
+
+function updateUserMarker(lat, lng) {
+    userMarker.setPosition(new google.maps.LatLng(lat, lng));
+    map.setCenter(userMarker.getPosition());
+    map.setZoom(19);
+    updateActiveStep();
+}
+
+function updateActiveStep() {
+    if (markerArray.length > 0) {
+        // Look for a nearby marker
+        var found = false;
+
+        for (var i = 0; i < markerArray.length; i++) {
+            var distance = google.maps.geometry.spherical.computeDistanceBetween(markerArray[i].getPosition(), userMarker.getPosition());
+            if (distance < 20) {
+                found = true;
+                activeStep = i;
+                markerArray[i].setIcon(activeIcon);
+            } else {
+                markerArray[i].setIcon(inactiveIcon);
+            }
+        }
+
+        // Get the active direction marker
+        var directionMarker = (found) ? activeStep : (activeStep + 1);
+
+        if (directionMarker >= markerArray.length) {
+            // Reached the end of the route
+            clearRoute();
+        }
+        else {
+            // Update the directions
+            var distance = google.maps.geometry.spherical.computeDistanceBetween(markerArray[directionMarker].getPosition(), userMarker.getPosition());
+            console.log("Distance" + distance);
+            var text = directions.routes[0].legs[0].steps[directionMarker].instructions;
+            updateDirectionPanel(distance, text);
+            //TODO: Inject the direction calculations here
+            //Direction between user and direction marker.getposition
+            //Also need to expand instructions outwards a little  bit
+            directionBearingClose = directionBetweenPoints(userMarker.getPosition().lat(), markerArray[directionMarker].getPosition().lat(), userMarker.getPosition().lng(), markerArray[directionMarker].getPosition().lng())
+            console.log("Close"+ directionBearingClose);
+            socketWrite("!DIR,");
+            socketWrite(parseInt(directionBearingClose));
+            if(distance < 80){
+                if(directionMarker <= markerArray.length-1){
+                    directionBearingFar =  directionBetweenPoints(markerArray[directionMarker].getPosition().lat(), markerArray[directionMarker+1].getPosition().lat(), markerArray[directionMarker].getPosition().lng(), markerArray[directionMarker+1].getPosition().lng())
+                    console.log("Far" + directionBearingFar);
+                    socketWrite(",");
+                    socketWrite(parseInt(directionBearingFar));
+                }
+            }
+            socketWrite("*");
+            socketEndLine();
+        }
+    }
+}
+
+function updateDirectionPanel (distance, text) {
+    var changed = false;
+
+    if (directionDistance != distance || directionText != text) {
+        // Update panel when a changed is detected
+        directionDistance = distance;
+        directionText = text;
+
+        updatePanel('directions', '<span class="distance">' + (directionDistance > 20 ? Math.round(directionDistance) + ' meter' : '&nbsp;') + ' </span> ' + (directionText != null ? directionText : '&nbsp;'));
+    }
+}
+
+function updateGeolocation(position) {
+    var lat = position.coords.latitude;
+    var lng = position.coords.longitude;
+    var speed = position.coords.speed;
+    var heading = position.coords.heading;
+    var description = (heading != null) ? ((speed * 3.6) + ' km/h, heading ' + heading) : ((speed * 3.6) + ' km/h');
+
+    updatePanel('geolocation', description);
+    updateUserMarker(lat, lng);
+}
+
+function onClick(){
+
+}
+
+function manipulateGeolocation(direction) {
+    var lat = userMarker.getPosition().lat();
+    var lng = userMarker.getPosition().lng();
+
+    switch (direction) {
+        case 'up':
+            lat += 0.0001;
+            break;
+        case 'down':
+            lat -= 0.0001;
+            break;
+        case 'right':
+            lng += 0.0005;
+            break;
+        case 'left':
+            lng -= 0.0005;
+            break;
+    }
+
+    updateUserMarker(lat, lng);
+}
+
+function updatePanel(id, text) {
+    var panel = document.getElementById(id);
+
+    if (panel && panel.innerHTML) {
+        panel.innerHTML = text;
+    }
+}
+
+function directionBetweenPoints (x1, x2, y1, y2){
+//    var lonlat = new OpenLayers.LonLat(x1, y1).transform("EPSG:900913","EPSG:4326");
+//    var lonlat2 = new OpenLayers.LonLat(x2, y2).transform("EPSG:900913","EPSG:4326");
+    console.log(x1, y1);
+    console.log(x2, y2);
+    lat1 = x1.toRad(); lat2 = x2.toRad();
+    var dLon = (y2-y1).toRad();
+
+    var y = Math.sin(dLon) * Math.cos(lat2);
+    var x = Math.cos(lat1)*Math.sin(lat2) -
+            Math.sin(lat1)*Math.cos(lat2)*Math.cos(dLon);
+    return Math.atan2(y, x).toBrng();
+}
+
+if (typeof(Number.prototype.toRad) === "undefined") {
+    Number.prototype.toRad = function() {
+        return this * Math.PI / 180;
+    }
+}
+if (typeof Number.prototype.toDeg == 'undefined') {
+    Number.prototype.toDeg = function() {
+        return this * 180 / Math.PI;
+    }
+}
+if (typeof(Number.prototype.toBrng) === "undefined") {
+    Number.prototype.toBrng = function() {  // convert radians to degrees (as bearing: 0...360)
+        return (this.toDeg()+360) % 360;
+    }
+}
+
+serialSocket.on('connected', function(data) {
+    console.log('Connected, this is what I received : ', data);
+    serialSocket.emit('sendSerial', "Connected");
+});
+// when you get a receiveSerial event, do this
+serialSocket.on('receiveSerial', function (data) {
+    // look for the textDisplay element in the HTML below:
+    console.log(data); //Check the console in chrome tools to see this
+    $("#serialDisplay").val(data);
+    // set the stuff inside the element's HTML tags to
+    // whatever the 'value' property of the received data is:
+})
+
+var socketWrite = function(data){
+    var writeBuff = JSON.stringify(data);
+    serialSocket.emit('sendSerial', writeBuff);
+    console.log("Sending Serial data :" + writeBuff);
+}
+var socketEndLine = function(){
+    serialSocket.emit('newLine');
+    console.log("Sending new line");
+}
+
+</script>
+</head>
+<body onload="initialize()">
+<div id="controls">
+    <a href="#" onclick="calcRoute(prompt('Destination', destination))">Calculate route</a>
+    &middot;
+    <a href="#" onclick="calcRoute(destination)">Recalculate</a>
+</div>
+<div id="map_canvas"></div>
+<div id="directions">&nbsp;</div>
+</body>
+
+</html>
