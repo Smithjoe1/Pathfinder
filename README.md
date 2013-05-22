@@ -1,4 +1,17 @@
 Pathfinder
 ==========
 
-A serial connected compass
+An arduino 0023 sketch for the http://www.dfrobot.com/index.php?route=product/product&product_id=487 RGB ring and LSM303DLH compass module.
+
+The program accepts serial commands starting with ! and ending with * to frame a packet, with commands comma seperated.
+
+The only command implemented so far is the DIR command, which takes a list of directions, from 1-5 arguments and outputs to a LED accordng to a difference in the compasses current heading to the desired pointer direction.
+
+
+
+
+Web-GUI
+==========
+The web interface module is based on the turn-by-turn navigation system from https://github.com/bsmulders/PoorMansGPS
+
+The page is provided by a node.js server, which uses socket.io and serialport to pipe directions to the Arduino module.
