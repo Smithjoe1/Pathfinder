@@ -1,0 +1,54 @@
+html, body {
+  height: 100%;
+	margin: 0;
+	padding: 0;
+	background-color: #000;
+	font-family: �Tahoma�, Geneva, sans-serif;
+	font-size: 12px;
+	color: #FFF;
+}
+
+a {
+	color: #FFF;
+}
+
+#map_canvas {
+	width: 100%;
+	height: 79%;
+}
+
+#geolocation, #directions, #controls, #injection{
+	width: 100%;
+	text-align: center;
+}
+
+#controls {
+	background-color: #EEE;
+	border: 2px #FFF solid;
+	border-left: 0;
+	border-right: 0;
+	padding: 5px 0;
+	color: #333;
+}
+
+#controls a {
+	color: #333;
+	text-decoration: none;
+	font-size: 14px;
+	margin: 0px 15px;
+}
+
+#directions {
+	width: 95%;
+	height: 55px;
+	margin: 5px auto;
+	background-color: #0EA578;
+	border: 3px #FFF solid;
+}
+
+#directions span.distance {
+	font-size: 16px;
+	display: block;
+	font-weight: 700;
+}
+
