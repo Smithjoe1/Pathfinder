@@ -15,3 +15,9 @@ Web-GUI
 The web interface module is based on the turn-by-turn navigation system from https://github.com/bsmulders/PoorMansGPS
 
 The page is provided by a node.js server, which uses socket.io and serialport to pipe directions to the Arduino module.
+
+You'll need to set the serial port the node.js server will connect through in the config.ini file.
+
+Start the server with "node socket.js" from the command line and naviagate to http://localhost:8000/index.html
+
+Once you have set a route to go to, you can click around the map and simulate the compass following the path.
